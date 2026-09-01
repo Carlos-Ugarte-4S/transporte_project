@@ -1,0 +1,325 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Ruta;
+use App\Models\Parada;
+use App\Models\RutaSegmento;
+use App\Models\RutaCoordenada;
+use App\Models\Linea;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
+
+
+class RutaController extends Controller
+{
+
+public function index() { $rutas = Ruta::with([ 
+    'linea.sindicato', 'paradas', 'coordenadas', 'segmentos', ]) 
+->orderBy('idruta', 'desc') 
+->get(); 
+
+return Inertia::render( 'Rutas/Index', [ 'rutas' => $rutas, ]
+ ); 
+ 
+ }
+
+   public function editor($id)
+{
+    $ruta = Ruta::with([
+        'linea.sindicato',
+        'paradas',
+        'coordenadas',
+        'segmentos',
+    ])->findOrFail($id);
+
+    $lineas = Linea::with('sindicato')
+        ->where('estado', 'activo')
+        ->orderBy('nombre')
+        ->get();
+
+    return Inertia::render('Rutas/Editor', [
+        'ruta' => $ruta,
+        'lineas' => $lineas,
+    ]);
+}
+
+public function calcularRuta(Request $request)
+{
+ $puntos = $request->input('puntos');
+
+    $coordenadas = collect($puntos)
+        ->map(fn($p) => $p['lng'] . ',' . $p['lat'])
+        ->implode(';');
+
+    $response = Http::get(
+        "https://router.project-osrm.org/route/v1/driving/" . $coordenadas,
+        [
+            'overview' => 'full',
+            'geometries' => 'geojson'
+        ]
+    );
+
+    $datos = $response->json();
+
+    if (
+        !$response->successful() ||
+        !isset($datos['routes'][0]['geometry']['coordinates'])
+    ) {
+        return response()->json([
+            'error' => 'OSRM no devolvió una ruta válida',
+            'respuesta' => $datos
+        ], 500);
+    }
+
+    return response()->json([
+        'coordinates' => $datos['routes'][0]['geometry']['coordinates'],
+        'distance' => $datos['routes'][0]['distance'],
+    ]);
+}
+
+
+
+public function recalcularTramo(Request $request)
+{
+
+    $puntos = $request->input('puntos');
+
+
+    $coordenadas = collect($puntos)
+        ->map(function($p){
+
+            return $p['lng'].','.$p['lat'];
+
+        })
+        ->implode(';');
+
+
+    $response = Http::get(
+        "https://router.project-osrm.org/route/v1/driving/".$coordenadas,
+        [
+            'overview'=>'full',
+            'geometries'=>'geojson'
+        ]
+    );
+
+
+    $datos = $response->json();
+
+
+    if(
+        !$response->successful() ||
+        !isset($datos['routes'][0]['geometry']['coordinates'])
+    ){
+
+        return response()->json([
+            'error'=>'No se pudo calcular tramo'
+        ],500);
+
+    }
+
+
+    return response()->json([
+        'coordinates'=>$datos['routes'][0]['geometry']['coordinates']
+    ]);
+
+}
+
+    public function create() { 
+        $lineas = Linea::with('sindicato') 
+        ->where('estado','activo')
+        ->orderBy('nombre') 
+        ->get();
+
+    return Inertia::render( 'Rutas/Create',
+     [ 'lineas' => $lineas, ] ); 
+    }
+
+public function guardar(Request $request)
+{
+    $request->validate([
+
+        'nombreruta' => 'required|string|max:100',
+
+        'origen' => 'required|string|max:100',
+
+        'destino' => 'required|string|max:100',
+
+        'idlinea' => 'required|exists:lineas,idlinea',
+
+        'tipo_ruta' => 'required|in:osrm,manual,hibrida',
+
+        'puntos' => 'required|array|min:2',
+
+        'puntos.*.lat' => 'required|numeric',
+
+        'puntos.*.lng' => 'required|numeric',
+
+        'paradas' => 'nullable|array',
+
+        'paradas.*.nombre' => 'required|string|max:150',
+
+        'paradas.*.ubicacion' => 'nullable|string|max:255',
+
+        'paradas.*.latitud' => 'required|numeric',
+
+        'paradas.*.longitud' => 'required|numeric',
+
+        'coordenadas' => 'required|array|min:2',
+
+        'coordenadas.*.lat' => 'required|numeric',
+
+        'coordenadas.*.lng' => 'required|numeric',
+
+        'segmentos' => 'required|array|min:1',
+
+        'segmentos.*.orden' => 'required|integer|min:1',
+
+        'segmentos.*.tipo' => 'required|string|in:osrm,manual',
+
+        'segmentos.*.geometria' => 'required|array',
+
+    ]);
+
+    try {
+
+        DB::beginTransaction();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 1. CREAR O ACTUALIZAR RUTA
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->filled('idruta')) {
+
+            $ruta = Ruta::findOrFail($request->idruta);
+
+            $ruta->update([
+                'nombreruta' => $request->nombreruta,
+                'origen' => $request->origen,
+                'destino' => $request->destino,
+                'distancia' => $request->distancia ?? 0,
+                'idlinea' => $request->idlinea,
+                'tipo_ruta' => $request->tipo_ruta,
+            ]);
+
+        } else {
+
+            $ruta = Ruta::create([
+                'nombreruta' => $request->nombreruta,
+                'origen' => $request->origen,
+                'destino' => $request->destino,
+                'distancia' => $request->distancia ?? 0,
+                'idlinea' => $request->idlinea,
+                'tipo_ruta' => $request->tipo_ruta,
+                'estado'=>'activo' ,
+            ]);
+        }
+
+
+        Parada::where('idruta', $ruta->idruta)->delete();
+
+        RutaCoordenada::where('idruta', $ruta->idruta)->delete();
+
+        RutaSegmento::where('idruta', $ruta->idruta)->delete();
+
+
+        foreach ($request->paradas ?? [] as $index => $parada) {
+
+            Parada::create([
+
+                'idruta' => $ruta->idruta,
+
+                'nombre' => $parada['nombre'],
+
+                'ubicacion' => $parada['ubicacion'] ?? null,
+
+                'latitud' => $parada['latitud'],
+
+                'longitud' => $parada['longitud'],
+
+                'orden' => $index + 1,
+            ]);
+        }
+
+        foreach ($request->coordenadas as $index => $coord) {
+
+            RutaCoordenada::create([
+
+                'idruta' => $ruta->idruta,
+
+                'orden' => $index + 1,
+
+                'latitud' => $coord['lat'],
+
+                'longitud' => $coord['lng'],
+            ]);
+        }
+
+
+        foreach ($request->segmentos as $index => $segmento) {
+
+            RutaSegmento::create([
+
+                'idruta' => $ruta->idruta,
+
+                'orden' => $index + 1,
+
+                'tipo' => $segmento['tipo'],
+
+                'geometria' => $segmento['geometria'],
+            ]);
+        }
+
+        DB::commit();
+
+return redirect()
+    ->route('rutas.index')
+    ->with('success', 'Ruta guardada exitosamente');
+
+    } catch (\Throwable $e) {
+
+        DB::rollBack();
+
+        return response()->json([
+
+            'success' => false,
+
+            'error' => $e->getMessage(),
+
+        ], 500);
+    }
+
+    
+}
+
+public function show($id)
+{
+    $ruta = Ruta::with([
+        'linea.sindicato',
+        'paradas',
+        'coordenadas',
+        'segmentos',
+    ])->findOrFail($id);
+
+    return Inertia::render('Rutas/Show', [
+        'ruta' => $ruta
+    ]);
+}
+    public function destroy($id)
+    {
+        try {
+            $ruta = Ruta::findOrFail($id);
+            $ruta->delete();
+            return redirect()->route('rutas.index')
+                ->with('success', 'Ruta eliminada exitosamente');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Error al eliminar la ruta');
+        }
+    }
+
+
+}

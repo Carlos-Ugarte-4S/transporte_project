@@ -1,0 +1,356 @@
+<script setup>
+import AdminLayout from "@/Layouts/AdminLayout.vue";
+import { Link } from "@inertiajs/vue3";
+import { onMounted, onBeforeUnmount } from "vue";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+const props = defineProps({
+    ruta: {
+        type: Object,
+        required: true,
+    },
+});
+
+let map = null;
+let lineaRuta = null;
+let marcadoresParadas = [];
+
+function dibujarRecorrido() {
+    if (!props.ruta.coordenadas || props.ruta.coordenadas.length < 2) {
+        return;
+    }
+
+    const coordenadas = props.ruta.coordenadas
+        .sort((a, b) => a.orden - b.orden)
+        .map((coordenada) => [
+            Number(coordenada.latitud),
+            Number(coordenada.longitud),
+        ]);
+
+    const color = props.ruta.tipo_ruta === "osrm" ? "red" : "blue";
+
+    lineaRuta = L.polyline(coordenadas, {
+        color: color,
+        weight: 6,
+        opacity: 0.85,
+    }).addTo(map);
+
+    map.fitBounds(lineaRuta.getBounds(), {
+        padding: [30, 30],
+    });
+}
+
+function crearIconoParada() {
+    return L.divIcon({
+        className: "",
+        html: `
+            <div style="
+                width: 32px;
+                height: 32px;
+                background: #f59e0b;
+                border: 3px solid white;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 7px rgba(0,0,0,0.45);
+                color: white;
+                font-size: 16px;
+                font-weight: bold;
+            ">
+                📍
+            </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+    });
+}
+
+function mostrarParadas() {
+    if (!props.ruta.paradas) {
+        return;
+    }
+
+    props.ruta.paradas
+        .sort((a, b) => a.orden - b.orden)
+        .forEach((parada) => {
+            const marcador = L.marker(
+                [Number(parada.latitud), Number(parada.longitud)],
+                {
+                    icon: crearIconoParada(),
+                },
+            ).addTo(map);
+
+            marcador.bindPopup(`
+                <strong>📍 Parada ${parada.orden}</strong>
+                <br>
+                <strong>${parada.nombre || "Sin nombre"}</strong>
+                <br>
+                ${parada.ubicacion || "Sin ubicación"}
+                <br>
+                Lat: ${Number(parada.latitud).toFixed(6)}
+                <br>
+                Lng: ${Number(parada.longitud).toFixed(6)}
+            `);
+
+            marcadoresParadas.push(marcador);
+        });
+}
+onMounted(() => {
+    map = L.map("map").setView([-20.027486787, -63.526018412], 14);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
+    }).addTo(map);
+
+    dibujarRecorrido();
+
+    mostrarParadas();
+});
+
+onBeforeUnmount(() => {
+    if (map) {
+        map.remove();
+    }
+});
+</script>
+
+<template>
+    <AdminLayout>
+        <div class="p-6">
+            <!-- ENCABEZADO -->
+
+            <div class="mb-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-3xl font-bold">
+                            {{ ruta.nombreruta }}
+                        </h1>
+
+                        <p class="text-gray-500 mt-1">
+                            Información y recorrido de la ruta
+                        </p>
+                    </div>
+
+                    <Link
+                        :href="route('rutas.index')"
+                        class="bg-gray-500 hover:bg-gray-600 text-white px-5 py-2 rounded-lg"
+                    >
+                        ← Volver
+                    </Link>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-md border p-6 mb-6">
+                <h2 class="text-xl font-bold mb-5">Datos de la Ruta</h2>
+
+                <div
+                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5"
+                >
+                    <!-- NOMBRE -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Nombre</p>
+
+                        <p class="font-semibold text-lg">
+                            {{ ruta.nombreruta }}
+                        </p>
+                    </div>
+
+                    <!-- LÍNEA -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Línea</p>
+
+                        <p class="font-semibold text-lg">
+                            {{ ruta.linea?.nombre ?? "Sin línea" }}
+                        </p>
+                    </div>
+
+                    <!-- SINDICATO -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Sindicato</p>
+
+                        <p class="font-semibold text-lg">
+                            {{
+                                ruta.linea?.sindicato?.nombre ?? "Sin sindicato"
+                            }}
+                        </p>
+                    </div>
+
+                    <!-- DISTANCIA -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Distancia</p>
+
+                        <p class="font-semibold text-lg">
+                            {{ ruta.distancia ?? 0 }} km
+                        </p>
+                    </div>
+
+                    <!-- ORIGEN -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Origen</p>
+
+                        <p class="font-semibold">
+                            {{ ruta.origen }}
+                        </p>
+                    </div>
+
+                    <!-- DESTINO -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Destino</p>
+
+                        <p class="font-semibold">
+                            {{ ruta.destino }}
+                        </p>
+                    </div>
+
+                    <!-- TIPO -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Tipo de ruta</p>
+
+                        <span
+                            v-if="ruta.tipo_ruta === 'osrm'"
+                            class="inline-block bg-red-100 text-red-700 px-3 py-1 rounded-full font-semibold"
+                        >
+                            🛣️ OSRM
+                        </span>
+
+                        <span
+                            v-else
+                            class="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-semibold"
+                        >
+                            ✏️ Manual
+                        </span>
+                    </div>
+
+                    <!-- PARADAS -->
+
+                    <div>
+                        <p class="text-sm text-gray-500">Paradas</p>
+
+                        <p class="font-semibold text-lg">
+                            {{ ruta.paradas?.length ?? 0 }}
+                        </p>
+                    </div>
+                </div>
+                <!-- MAPA -->
+
+                <div class="bg-white rounded-xl shadow-md border p-6 mb-6">
+                    <div class="mb-4">
+                        <h2 class="text-xl font-bold">
+                            🗺️ Recorrido de la Ruta
+                        </h2>
+
+                        <p class="text-gray-500 mt-1">
+                            Visualización del recorrido almacenado.
+                        </p>
+                    </div>
+
+                    <div
+                        id="map"
+                        class="rounded-lg border"
+                        style="height: 600px"
+                    ></div>
+                </div>
+                <!-- PARADAS -->
+
+                <div class="bg-white rounded-xl shadow-md border p-6 mb-6">
+                    <h2 class="text-xl font-bold mb-5">
+                        📍 Paradas de la Ruta
+                    </h2>
+
+                    <div
+                        v-if="!ruta.paradas || ruta.paradas.length === 0"
+                        class="text-gray-500 italic"
+                    >
+                        Esta ruta no tiene paradas registradas.
+                    </div>
+
+                    <div v-else class="space-y-3">
+                        <div
+                            v-for="(parada, index) in ruta.paradas"
+                            :key="parada.idparada ?? index"
+                            class="border rounded-lg p-4 bg-gray-50"
+                        >
+                            <div class="flex items-start gap-4">
+                                <!-- NUMERO -->
+
+                                <div
+                                    class="w-10 h-10 rounded-full bg-yellow-500 text-white flex items-center justify-center font-bold flex-shrink-0"
+                                >
+                                    {{ parada.orden }}
+                                </div>
+
+                                <!-- INFORMACIÓN -->
+
+                                <div class="flex-1">
+                                    <h3 class="font-bold text-lg">
+                                        {{ parada.nombre || "Sin nombre" }}
+                                    </h3>
+
+                                    <p class="text-gray-600">
+                                        {{
+                                            parada.ubicacion || "Sin ubicación"
+                                        }}
+                                    </p>
+
+                                    <p class="text-sm text-gray-500 mt-2">
+                                        Latitud:
+                                        {{ Number(parada.latitud).toFixed(6) }}
+
+                                        <br />
+
+                                        Longitud:
+                                        {{ Number(parada.longitud).toFixed(6) }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- INFORMACIÓN DEL RECORRIDO -->
+
+                <div class="bg-white rounded-xl shadow-md border p-6 mb-6">
+                    <h2 class="text-xl font-bold mb-4">
+                        🛣️ Información del recorrido
+                    </h2>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <p class="text-sm text-gray-500">
+                                Puntos del recorrido
+                            </p>
+
+                            <p class="text-2xl font-bold">
+                                {{ ruta.coordenadas?.length ?? 0 }}
+                            </p>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <p class="text-sm text-gray-500">Paradas</p>
+
+                            <p class="text-2xl font-bold">
+                                {{ ruta.paradas?.length ?? 0 }}
+                            </p>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <p class="text-sm text-gray-500">Segmentos</p>
+
+                            <p class="text-2xl font-bold">
+                                {{ ruta.segmentos?.length ?? 0 }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </AdminLayout>
+</template>

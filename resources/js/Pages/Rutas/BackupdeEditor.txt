@@ -1,0 +1,1196 @@
+<script setup>
+import { onMounted, ref, watch } from "vue";
+import axios from "axios";
+
+import L from "leaflet";
+
+import "leaflet/dist/leaflet.css";
+
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+defineProps({
+    ruta: Object,
+    lineas: Array,
+});
+//nuevas implementaciones para realizar calculos con segmentos de ruta y poder recalcular tramos
+const segmentos = ref([]);
+let lineasSegmentos = [];
+
+function buscarIndiceGeometria(parada) {
+    let indice = -1;
+
+    let menor = Infinity;
+
+    geometriaOSRM.value.forEach((punto, i) => {
+        const distancia = Math.hypot(
+            parada.lat - punto.lat,
+
+            parada.lng - punto.lng,
+        );
+
+        if (distancia < menor) {
+            menor = distancia;
+
+            indice = i;
+        }
+    });
+
+    return indice;
+}
+
+function crearSegmentos() {
+    segmentos.value = [];
+
+    for (let i = 0; i < puntos.value.length - 1; i++) {
+        const inicio = buscarIndiceGeometria(puntos.value[i]);
+
+        const fin = buscarIndiceGeometria(puntos.value[i + 1]);
+
+        segmentos.value.push({
+            id: i,
+
+            paradaInicio: i,
+
+            paradaFin: i + 1,
+
+            inicio,
+
+            fin,
+
+            geometria: geometriaOSRM.value.slice(inicio, fin + 1),
+
+            color: "red",
+        });
+    }
+}
+
+function dibujarSegmentos() {
+    lineasSegmentos.forEach((linea) => {
+        map.removeLayer(linea);
+    });
+
+    lineasSegmentos = [];
+
+    segmentos.value.forEach((segmento) => {
+        const tramo = segmento.geometria;
+
+        const linea = L.polyline(
+            tramo.map((p) => [p.lat, p.lng]),
+            {
+                color: segmento.color,
+                weight: 6,
+            },
+        ).addTo(map);
+
+        linea.on("click", () => {
+            seleccionarSegmento(segmento);
+        });
+
+        segmento.linea = linea;
+
+        lineasSegmentos.push(linea);
+    });
+}
+
+const segmentoSeleccionado = ref(null);
+
+const puntosEdicion = ref([]);
+
+function seleccionarSegmento(segmento) {
+    segmentos.value.forEach((s) => {
+        s.linea.setStyle({
+            color: "red",
+            weight: 6,
+        });
+    });
+
+    segmento.linea.setStyle({
+        color: "yellow",
+        weight: 8,
+    });
+
+    segmentoSeleccionado.value = segmento;
+
+    puntosEdicion.value = JSON.parse(JSON.stringify(segmento.geometria));
+}
+
+let marcadoresEdicion = [];
+
+function mostrarPuntosEdicion() {
+    marcadoresEdicion.forEach((m) => {
+        map.removeLayer(m);
+    });
+
+    marcadoresEdicion = [];
+
+    puntosEdicion.value.forEach((p, index) => {
+        let marcador = L.marker([p.lat, p.lng], {
+            draggable: true,
+        }).addTo(map);
+
+        marcador.on("dragend", (e) => {
+            const pos = e.target.getLatLng();
+
+            puntosEdicion.value[index] = {
+                lat: pos.lat,
+                lng: pos.lng,
+            };
+
+            actualizarLineaEdicion();
+        });
+
+        marcadoresEdicion.push(marcador);
+    });
+}
+
+let lineaEdicion = null;
+
+function redibujarRuta() {
+    if (polyline) {
+        map.removeLayer(polyline);
+    }
+
+    polyline = L.polyline(
+        geometriaOSRM.value.map((p) => [p.lat, p.lng]),
+
+        {
+            color: "red",
+            weight: 6,
+        },
+    ).addTo(map);
+}
+
+function probarHibrida() {
+    tipoRuta.value = "hibrida";
+
+    console.log("TIPO:", tipoRuta.value);
+
+    console.log("SEGMENTO ORIGINAL", segmentos.value[1]);
+
+    // modificar un punto del segmento 1
+
+    segmentos.value[1].geometria[1] = {
+        lat: -20.034,
+        lng: -63.521,
+    };
+
+    console.log("SEGMENTO MODIFICADO", segmentos.value[1].geometria);
+
+    generarGeometriaFinal();
+
+    console.log("GEOMETRIA FINAL HIBRIDA", geometriaFinal.value);
+}
+
+function actualizarLineaEdicion() {
+    if (lineaEdicion) {
+        map.removeLayer(lineaEdicion);
+    }
+
+    lineaEdicion = L.polyline(
+        puntosEdicion.value.map((p) => [p.lat, p.lng]),
+
+        {
+            color: "blue",
+            weight: 8,
+        },
+    ).addTo(map);
+}
+
+function limpiarEdicion() {
+    marcadoresEdicion.forEach((m) => {
+        map.removeLayer(m);
+    });
+
+    marcadoresEdicion = [];
+
+    if (lineaEdicion) {
+        map.removeLayer(lineaEdicion);
+
+        lineaEdicion = null;
+    }
+}
+
+function guardarSegmento() {
+    if (!segmentoSeleccionado.value) {
+        return;
+    }
+
+    segmentoSeleccionado.value.geometria = JSON.parse(
+        JSON.stringify(puntosEdicion.value),
+    );
+
+    reconstruirRuta();
+
+    limpiarEdicion();
+}
+
+function actualizarSegmentos() {
+    segmentos.value.forEach((segmento) => {
+        segmento.linea.setLatLngs(
+            segmento.geometria.map((p) => [p.lat, p.lng]),
+        );
+    });
+}
+
+function reconstruirRuta() {
+    let nueva = [];
+
+    segmentos.value.forEach((segmento, index) => {
+        if (index === 0) {
+            nueva.push(...segmento.geometria);
+        } else {
+            nueva.push(...segmento.geometria.slice(1));
+        }
+    });
+
+    geometriaOSRM.value = nueva;
+
+    actualizarSegmentos();
+
+    redibujarRuta();
+}
+
+const tipoRuta = ref("osrm");
+
+function obtenerGeometriaGuardar() {
+    if (tipoRuta.value === "osrm") {
+        return geometriaOSRM.value;
+    }
+
+    if (tipoRuta.value === "manual") {
+        return puntos.value;
+    }
+}
+
+const modoDibujoManual = ref(false);
+//nuevo cambio para permitir dibujar la ruta manualmente, se crea un arreglo de geometría manual
+const geometriaManual = ref([]);
+
+function agregarPuntoGeometriaManual(e) {
+    geometriaManual.value.push({
+        lat: e.latlng.lat,
+
+        lng: e.latlng.lng,
+    });
+
+    dibujarManual();
+}
+
+let lineaManual = null;
+
+function dibujarManual() {
+    if (lineaManual) {
+        map.removeLayer(lineaManual);
+    }
+
+    lineaManual = L.polyline(
+        geometriaManual.value.map((p) => [p.lat, p.lng]),
+
+        {
+            color: "blue",
+            weight: 6,
+        },
+    ).addTo(map);
+}
+
+const geometriaFinal = ref([]);
+
+function generarGeometriaFinal() {
+    if (tipoRuta.value === "osrm") {
+        geometriaFinal.value = JSON.parse(JSON.stringify(geometriaOSRM.value));
+    }
+
+    if (tipoRuta.value === "manual") {
+        geometriaFinal.value = JSON.parse(
+            JSON.stringify(geometriaManual.value),
+        );
+    }
+
+    if (tipoRuta.value === "hibrida") {
+        geometriaFinal.value = reconstruirRutaHibrida();
+    }
+}
+
+function reconstruirRutaHibrida() {
+    let ruta = [];
+
+    segmentos.value.forEach((segmento, index) => {
+        if (index === 0) {
+            ruta.push(...segmento.geometria);
+        } else {
+            ruta.push(...segmento.geometria.slice(1));
+        }
+    });
+
+    return ruta;
+}
+
+watch(
+    segmentos,
+    (nuevoValor) => {
+        console.log("===== SEGMENTOS ACTUALIZADOS =====");
+
+        const datos = nuevoValor.map((segmento) => ({
+            id: segmento.id,
+
+            paradaInicio: segmento.paradaInicio,
+
+            paradaFin: segmento.paradaFin,
+
+            puntos: segmento.geometria.length,
+
+            geometria: segmento.geometria,
+        }));
+
+        console.log(datos);
+    },
+    {
+        deep: true,
+    },
+);
+
+watch(
+    geometriaFinal,
+    (nuevoValor) => {
+        console.log("===== GEOMETRIA FINAL =====");
+
+        console.log(JSON.parse(JSON.stringify(nuevoValor)));
+    },
+    {
+        deep: true,
+    },
+);
+
+watch(tipoRuta, (nuevoValor) => {
+    console.log("TIPO DE RUTA CAMBIÓ:", nuevoValor);
+});
+
+/////////////////////////////////////////////////////////////////////
+delete L.Icon.Default.prototype._getIconUrl;
+
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: markerIcon2x,
+    iconUrl: markerIcon,
+    shadowUrl: markerShadow,
+});
+
+async function calcularRutaOSRM() {
+    if (puntos.value.length < 2) {
+        alert("Seleccione al menos 2 puntos.");
+        return;
+    }
+
+    try {
+        const response = await axios.post("/rutas/calcular", {
+            puntos: puntos.value,
+        });
+
+        console.log(response.data);
+
+        // Obtener las coordenadas que devuelve Laravel
+        const coordenadas = response.data.coordinates;
+
+        // Guardarlas para la base de datos
+        geometriaOSRM.value = coordenadas.map((c) => ({
+            lat: c[1],
+            lng: c[0],
+        }));
+
+        crearSegmentos();
+
+        dibujarSegmentos();
+
+        console.log(segmentos.value);
+
+        mostrarNumerosOSRM();
+    } catch (error) {
+        console.error(error);
+
+        console.error(error.response?.data);
+
+        alert("No se pudo calcular la ruta.");
+    }
+}
+async function recalcularTramo() {
+    if (!tramoSeleccionado.value) {
+        alert("Seleccione primero un tramo");
+
+        return;
+    }
+
+    if (!puntoGuia.value) {
+        alert("Seleccione un punto guía");
+
+        return;
+    }
+
+    if (!tramoSeleccionado.value) {
+        return;
+    }
+
+    const inicio = geometriaOSRM.value[tramoSeleccionado.value.inicio];
+
+    const fin = geometriaOSRM.value[tramoSeleccionado.value.fin];
+
+    const puntosTramo = [inicio, puntoGuia.value, fin];
+
+    try {
+        const response = await axios.post("/rutas/recalcular-tramo", {
+            puntos: puntosTramo,
+        });
+
+        const coordenadas = response.data.coordinates;
+
+        nuevoTramo.value = coordenadas.map((c) => ({
+            lat: c[1],
+            lng: c[0],
+        }));
+
+        console.log("Nuevo tramo convertido:");
+        console.log(nuevoTramo.value);
+    } catch (error) {
+        console.error(error);
+
+        alert("Error recalculando tramo");
+    }
+}
+
+function reemplazarTramo() {
+    if (!tramoSeleccionado.value) {
+        alert("Seleccione un tramo");
+
+        return;
+    }
+
+    if (nuevoTramo.value.length === 0) {
+        alert("Primero recalcule el tramo");
+
+        return;
+    }
+
+    const inicio = tramoSeleccionado.value.inicio;
+
+    const fin = tramoSeleccionado.value.fin;
+
+    const nuevaRuta = [
+        ...geometriaOSRM.value.slice(0, inicio),
+
+        ...nuevoTramo.value.slice(1, -1),
+
+        ...geometriaOSRM.value.slice(fin),
+    ];
+
+    geometriaOSRM.value = limpiarGeometria(nuevaRuta);
+
+    // borrar línea anterior
+
+    if (polyline) {
+        map.removeLayer(polyline);
+    }
+
+    // dibujar nueva ruta
+
+    polyline = L.polyline(
+        geometriaOSRM.value.map((p) => [p.lat, p.lng]),
+        {
+            color: "red",
+            weight: 6,
+            opacity: 1,
+        },
+    ).addTo(map);
+
+    // importante
+    polyline.bringToFront();
+
+    console.log("Ruta actualizada:");
+
+    console.log(geometriaOSRM.value);
+
+    mostrarNumerosOSRM();
+
+    // limpiar edición
+    nuevoTramo.value = [];
+
+    tramoSeleccionado.value = null;
+
+    puntoGuia.value = null;
+
+    if (marcadorGuia) {
+        map.removeLayer(marcadorGuia);
+        marcadorGuia = null;
+    }
+
+    if (polylineSeleccion) {
+        map.removeLayer(polylineSeleccion);
+        polylineSeleccion = null;
+    }
+}
+
+function limpiarGeometria(puntos) {
+    const resultado = [];
+
+    puntos.forEach((punto) => {
+        const ultimo = resultado[resultado.length - 1];
+
+        if (!ultimo) {
+            resultado.push(punto);
+
+            return;
+        }
+
+        const mismaLat = Math.abs(ultimo.lat - punto.lat) < 0.000001;
+
+        const mismaLng = Math.abs(ultimo.lng - punto.lng) < 0.000001;
+
+        if (!mismaLat || !mismaLng) {
+            resultado.push(punto);
+        }
+    });
+
+    return resultado;
+}
+
+const puntos = ref([]);
+
+const marcadores = [];
+
+let map = null;
+
+const nombreruta = ref("");
+
+const idlinea = ref("");
+
+const origen = ref("");
+
+const destino = ref("");
+
+const geometriaOSRM = ref([]);
+
+const tramoSeleccionado = ref(null);
+
+const modoEditar = ref(false);
+
+let polyline = null;
+
+let polylineSeleccion = null;
+
+let tramoLinea = null;
+
+const puntoGuia = ref(null);
+
+let marcadorGuia = null;
+
+const modoGuia = ref(false);
+
+const nuevoTramo = ref([]);
+
+const marcadoresOSRM = [];
+
+function mostrarNumerosOSRM() {
+    marcadoresOSRM.forEach((m) => {
+        map.removeLayer(m);
+    });
+
+    marcadoresOSRM.length = 0;
+
+    geometriaOSRM.value.forEach((punto, index) => {
+        const marcador = L.marker([punto.lat, punto.lng], {
+            zIndexOffset: -1000,
+
+            icon: L.divIcon({
+                className: "",
+
+                html: `
+                    <div style="
+                    background:white;
+                    border:2px solid red;
+                    color:red;
+                    width:24px;
+                    height:24px;
+                    border-radius:50%;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    font-weight:bold;
+                    ">
+                    ${index}
+                    </div>
+                    `,
+            }),
+        }).addTo(map);
+
+        marcadoresOSRM.push(marcador);
+    });
+}
+
+function agregarPuntoGuia(e) {
+    if (!modoGuia.value) {
+        return;
+    }
+
+    puntoGuia.value = {
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+    };
+
+    // eliminar marcador anterior
+    if (marcadorGuia) {
+        map.removeLayer(marcadorGuia);
+    }
+
+    // crear marcador verde
+    marcadorGuia = L.marker([puntoGuia.value.lat, puntoGuia.value.lng], {
+        icon: L.divIcon({
+            className: "",
+            html: `
+                    <div style="
+                        background:#16a34a;
+                        width:20px;
+                        height:20px;
+                        border-radius:50%;
+                        border:3px solid white;
+                    ">
+                    </div>
+                `,
+        }),
+    }).addTo(map);
+
+    console.log("Punto guía creado:");
+    console.log(puntoGuia.value);
+}
+
+// Crear / actualizar línea
+function actualizarLinea() {
+    if (polyline) {
+        map.removeLayer(polyline);
+    }
+
+    if (puntos.value.length < 2) {
+        return;
+    }
+
+    polyline = L.polyline(
+        puntos.value.map((p) => [p.lat, p.lng]),
+        {
+            color: "blue",
+            weight: 5,
+        },
+    ).addTo(map);
+
+    map.fitBounds(polyline.getBounds(), {
+        padding: [40, 40],
+    });
+}
+
+function eliminarPunto(marcador) {
+    const indice = marcadores.indexOf(marcador);
+
+    if (indice !== -1) {
+        // eliminar coordenada
+        puntos.value.splice(indice, 1);
+
+        // eliminar marcador del mapa
+        map.removeLayer(marcador);
+
+        // eliminar marcador del arreglo
+        marcadores.splice(indice, 1);
+
+        actualizarLinea();
+    }
+}
+
+// Crear marcador movible
+function crearMarcador(latlng) {
+    const marcador = L.marker(latlng, {
+        draggable: true,
+    }).addTo(map);
+
+    marcadores.push(marcador);
+
+    marcador.on("dragend", function (e) {
+        const nuevaPosicion = e.target.getLatLng();
+
+        const indice = marcadores.indexOf(marcador);
+
+        puntos.value[indice] = {
+            lat: nuevaPosicion.lat,
+
+            lng: nuevaPosicion.lng,
+        };
+
+        actualizarLinea();
+    });
+
+    marcador.on("contextmenu", function () {
+        eliminarPunto(marcador);
+    });
+}
+
+// Evento para agregar puntos
+function agregarPunto(e) {
+    const nuevoPunto = {
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+    };
+
+    const existe = puntos.value.some(
+        (p) =>
+            Math.abs(p.lat - nuevoPunto.lat) < 0.00001 &&
+            Math.abs(p.lng - nuevoPunto.lng) < 0.00001,
+    );
+
+    if (existe) {
+        alert("Este punto ya existe");
+        return;
+    }
+
+    puntos.value.push(nuevoPunto);
+
+    crearMarcador(e.latlng);
+
+    actualizarLinea();
+}
+
+function subirPunto(index) {
+    if (index === 0) {
+        return;
+    }
+
+    const temporal = puntos.value[index];
+
+    puntos.value[index] = puntos.value[index - 1];
+
+    puntos.value[index - 1] = temporal;
+
+    sincronizarMarcadores();
+    actualizarLinea();
+    mostrarOrden();
+}
+
+function bajarPunto(index) {
+    if (index === puntos.value.length - 1) {
+        return;
+    }
+
+    const temporal = puntos.value[index];
+
+    puntos.value[index] = puntos.value[index + 1];
+
+    puntos.value[index + 1] = temporal;
+
+    sincronizarMarcadores();
+    actualizarLinea();
+    mostrarOrden();
+}
+
+function eliminarPuntoLista(index) {
+    puntos.value.splice(index, 1);
+
+    const marcador = marcadores[index];
+
+    if (marcador) {
+        map.removeLayer(marcador);
+    }
+
+    marcadores.splice(index, 1);
+
+    actualizarLinea();
+    actualizarMarcadores();
+}
+
+function actualizarMarcadores() {
+    puntos.value.forEach((punto, index) => {
+        if (marcadores[index]) {
+            marcadores[index].setLatLng([punto.lat, punto.lng]);
+        }
+    });
+}
+
+function mostrarOrden() {
+    console.log("ORDEN ACTUAL DE PUNTOS:");
+
+    puntos.value.forEach((punto, index) => {
+        console.log("Parada", index + 1, "Lat:", punto.lat, "Lng:", punto.lng);
+    });
+}
+
+function sincronizarMarcadores() {
+    const nuevosMarcadores = [];
+
+    puntos.value.forEach((punto) => {
+        const marcadorEncontrado = marcadores.find((m) => {
+            const posicion = m.getLatLng();
+
+            return posicion.lat === punto.lat && posicion.lng === punto.lng;
+        });
+
+        if (marcadorEncontrado) {
+            nuevosMarcadores.push(marcadorEncontrado);
+        }
+    });
+
+    marcadores.splice(0, marcadores.length, ...nuevosMarcadores);
+}
+
+async function guardarRuta() {
+    generarGeometriaFinal();
+    //Cambio para guardar la ruta con el tipo de ruta seleccionado y los segmentos de la ruta
+    /*  const datos = {
+        nombreruta: nombreruta.value,
+
+        tipo_ruta: tipoRuta.value,
+
+        coordenadas: geometriaFinal.value,
+
+        segmentos: segmentos.value.map((segmento, index) => ({
+            orden: index,
+
+            tipo: segmento.tipo ?? "osrm",
+
+            geometria: segmento.geometria,
+        })),
+    };*/
+
+    const datos = {
+        nombreruta: nombreruta.value,
+
+        origen: origen.value,
+
+        destino: destino.value,
+
+        idlinea: idlinea.value,
+
+        distancia: 0,
+
+        tipo_ruta: tipoRuta.value,
+
+        paradas: puntos.value.map((punto, index) => ({
+            nombre: `Parada ${index + 1}`,
+            ubicacion: "",
+            latitud: punto.lat,
+            longitud: punto.lng,
+        })),
+
+        coordenadas: geometriaFinal.value,
+
+        segmentos: segmentos.value.map((segmento, index) => ({
+            orden: index,
+            tipo: segmento.tipo ?? "osrm",
+            geometria: segmento.geometria,
+        })),
+    };
+
+    console.log("========== DATOS A GUARDAR ==========");
+    try {
+        const respuesta = await axios.post("/rutas/guardar", datos);
+
+        console.log("RESPUESTA DEL SERVIDOR");
+        console.log(respuesta.data);
+    } catch (error) {
+        console.log("STATUS");
+        console.log(error.response.status);
+
+        console.log("DATA");
+        console.log(error.response.data);
+    }
+    // probarGuardado();
+}
+
+function probarGuardado() {
+    generarGeometriaFinal();
+
+    console.log({
+        tipoRuta: tipoRuta.value,
+
+        coordenadas: geometriaFinal.value,
+    });
+}
+/*
+async function guardarRuta() {
+    const datos = {
+        nombreruta: nombreruta.value,
+
+        idlinea: idlinea.value,
+
+        origen: origen.value,
+
+        destino: destino.value,
+
+        paradas: puntos.value.map((punto, index) => ({
+            nombre: `Parada ${index + 1}`,
+
+            ubicacion: "",
+
+            tipo_ruta: tipoRuta.value,
+
+            latitud: punto.lat,
+
+            longitud: punto.lng,
+        })),
+
+        coordenadas: obtenerGeometriaGuardar(),
+
+        tipo_ruta: tipoRuta.value,
+    };
+
+    try {
+        const respuesta = await axios.post("/rutas/guardar", datos);
+
+        console.log(respuesta.data);
+
+        alert("Ruta guardada correctamente");
+    } catch (error) {
+        console.error(error.response?.data);
+
+        alert("Error al guardar ruta");
+    }
+}*/
+// Inicialización del mapa
+onMounted(() => {
+    map = L.map("map").setView([-20.0275, -63.526], 14);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+
+    map.on("click", (e) => {
+        if (modoGuia.value) {
+            agregarPuntoGuia(e);
+
+            return;
+        }
+
+        if (modoEditar.value) {
+            seleccionarSegmentoMapa(e);
+
+            return;
+        }
+        //cambio para permitir dibujar la ruta manualmente, si el modo de dibujo manual está activo, se agregará un punto a la geometría manual
+        if (modoDibujoManual.value) {
+            agregarPuntoGeometriaManual(e);
+
+            return;
+        }
+
+        agregarPunto(e);
+    });
+});
+</script>
+
+<template>
+    <div class="max-w-7xl mx-auto p-6">
+        <!-- ================= HEADER ================= -->
+        <div
+            class="sticky top-0 z-50 bg-white rounded-xl shadow-md border mb-6 px-6 py-4"
+        >
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800">
+                        Editor de Rutas
+                    </h1>
+
+                    <p class="text-gray-500 mt-1">
+                        Seleccione las paradas, calcule la ruta y guárdela.
+                    </p>
+                </div>
+
+                <!-- Barra de herramientas -->
+                <div class="flex items-center gap-3">
+                    <button
+                        @click="reemplazarTramo"
+                        class="px-5 py-2.5 rounded-lg bg-indigo-600 text-white font-semibold shadow"
+                    >
+                        🔄 Aplicar cambio
+                    </button>
+                    <!-- Editar -->
+
+                    <!-- OSRM -->
+                    <button
+                        @click="calcularRutaOSRM"
+                        class="px-5 py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold shadow transition-all duration-200"
+                    >
+                        🛣️ Calcular OSRM
+                    </button>
+
+                    <!-- Guardar -->
+                    <button
+                        @click="guardarRuta"
+                        class="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow transition-all duration-200"
+                    >
+                        💾 Guardar Ruta
+                    </button>
+
+                    <button
+                        @click="probarHibrida"
+                        class="bg-purple-600 text-white px-3 py-2 rounded"
+                    >
+                        Probar híbrida
+                    </button>
+
+                    <button
+                        @click="mostrarPuntosEdicion"
+                        class="bg-blue-500 text-white px-3 py-2 rounded"
+                    >
+                        Editar segmento
+                    </button>
+
+                    <button
+                        @click="guardarSegmento"
+                        class="bg-green-600 text-white px-3 py-2 rounded"
+                    >
+                        Guardar segmento
+                    </button>
+
+                    <button
+                        @click="modoDibujoManual = !modoDibujoManual"
+                        class="bg-green-600 text-white px-3 py-2 rounded"
+                    >
+                        ✏️ Dibujar ruta manual
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="font-semibold"> Tipo de ruta </label>
+
+            <select v-model="tipoRuta" class="border rounded p-3">
+                <option value="osrm">OSRM</option>
+
+                <option value="manual">Manual</option>
+
+                <option value="hibrida">Híbrida</option>
+            </select>
+        </div>
+
+        <!-- ================= DATOS ================= -->
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div>
+                <label class="block mb-2 font-semibold">
+                    Nombre de la Ruta
+                </label>
+
+                <input
+                    v-model="nombreruta"
+                    type="text"
+                    placeholder="Ej. Ruta Centro"
+                    class="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-400 outline-none"
+                />
+            </div>
+
+            <div>
+                <label class="block mb-2 font-semibold"> Línea </label>
+
+                <select
+                    v-model="idlinea"
+                    class="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-400 outline-none"
+                >
+                    <option value="">Seleccione una línea</option>
+
+                    <option
+                        v-for="linea in lineas"
+                        :key="linea.idlinea"
+                        :value="linea.idlinea"
+                    >
+                        {{ linea.nombre }}
+                        -
+                        {{ linea.sindicato.nombre }}
+                    </option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block mb-2 font-semibold"> Origen </label>
+
+                <input
+                    v-model="origen"
+                    type="text"
+                    placeholder="Terminal"
+                    class="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-400 outline-none"
+                />
+            </div>
+
+            <div>
+                <label class="block mb-2 font-semibold"> Destino </label>
+
+                <input
+                    v-model="destino"
+                    type="text"
+                    placeholder="Mercado Central"
+                    class="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-400 outline-none"
+                />
+            </div>
+        </div>
+
+        <!-- ================= MAPA ================= -->
+
+        <div class="bg-white rounded-xl shadow-md border p-4">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-xl font-bold">🗺️ Mapa</h2>
+
+                <span
+                    class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold"
+                >
+                    {{ puntos.length }} Paradas
+                </span>
+            </div>
+
+            <div id="map" class="rounded-lg border" style="height: 600px"></div>
+        </div>
+
+        <!-- ================= PARADAS ================= -->
+
+        <div class="mt-8">
+            <h2 class="text-xl font-bold mb-4">📍 Paradas Seleccionadas</h2>
+
+            <div v-if="puntos.length === 0" class="text-gray-500 italic">
+                Aún no existen paradas seleccionadas.
+            </div>
+
+            <div
+                v-for="(punto, index) in puntos"
+                :key="index"
+                class="bg-white rounded-xl border shadow-sm p-4 mb-3 flex justify-between items-center hover:shadow-md transition"
+            >
+                <div>
+                    <div class="font-bold text-lg">Parada {{ index + 1 }}</div>
+
+                    <div class="text-gray-600 mt-1">
+                        Lat:
+                        {{ punto.lat.toFixed(6) }}
+
+                        <br />
+
+                        Lng:
+                        {{ punto.lng.toFixed(6) }}
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button
+                        @click="subirPunto(index)"
+                        class="w-10 h-10 rounded-lg bg-gray-200 hover:bg-gray-300"
+                    >
+                        ⬆️
+                    </button>
+
+                    <button
+                        @click="bajarPunto(index)"
+                        class="w-10 h-10 rounded-lg bg-gray-200 hover:bg-gray-300"
+                    >
+                        ⬇️
+                    </button>
+
+                    <button
+                        @click="eliminarPuntoLista(index)"
+                        class="w-10 h-10 rounded-lg bg-red-500 hover:bg-red-600 text-white"
+                    >
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
