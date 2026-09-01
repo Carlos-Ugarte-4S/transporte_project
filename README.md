@@ -1,59 +1,55 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
-
 <p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+  <h1 align="center">Sistema de Información para la Gestión del Transporte Público en Camiri</h1>
+  <p align="center">
+    <strong>Proyecto Académico - INF342 (Sistemas de Información I)</strong><br>
+    Universidad Autónoma "Gabriel René Moreno" — Facultad Integral del Chaco
+  </p>
 </p>
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 📌 Descripción del Proyecto
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Este proyecto consiste en el desarrollo de un sistema de información web centralizado diseñado para la **Facultad Integral del Chaco (UAGRM - FICH)** en Camiri, Santa Cruz, Bolivia. 
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+El objetivo principal es automatizar y optimizar la gestión operativa del transporte público urbano de la ciudad de Camiri, integrando procesos fragmentados como el registro de personal (choferes y propietarios), parque automotor, líneas, rutas, paradas intermedias, turnos y asignaciones operativas diarias.
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## 👥 Equipo de Trabajo
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- **Autor:**
+  - Carlos Daniel Ugarte
+---
 
-## Laravel Sponsors
+## 🚀 Módulos del Sistema
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+El sistema está estructurado bajo la metodología **PUDS (Proceso Unificado de Desarrollo de Software)** y contempla los siguientes módulos funcionales:
 
-### Premium Partners
+| Módulo | Descripción / Alcance |
+| :--- | :--- |
+| **Seguridad y Usuarios** | Control de acceso basado en roles (Administrador, Operadores, Consultas). |
+| **Personas** | Registro unificado de perfiles (Propietarios, Choferes, Administradores). |
+| **Gestión de Flota** | Hoja de vida de vehículos, tipos de transporte, capacidad y asignación de líneas. |
+| **Infraestructura Vial** | Definición de Sindicatos, Líneas, Rutas completas y Paradas con geolocalización. |
+| **Planificación Operativa** | Control de Horarios, Turnos y Asignación Diaria (*Chofer + Vehículo + Línea + Horario*). |
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+---
 
-## Contributing
+## 🛠️ Tecnologías Utilizadas
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- **Framework Backend:** [Laravel](https://laravel.com/) (PHP)
+- **Frontend:** Blade Templates / Tailwind CSS / Bootstrap
+- **Base de Datos:** PostgreSQL / MySQL (Modelo Relacional Centralizado)
+- **Metodología y Modelado:** PUDS & UML (Lenguaje Unificado de Modelado)
 
-## Code of Conduct
+---
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## 💻 Instalación y Configuración Local
 
-## Security Vulnerabilities
+Sigue estos pasos para clonar e ejecutar el proyecto localmente:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+1. **Clonar el repositorio:**
+   ```bash
+   git clone [https://github.com/tu-usuario/nombre-del-repositorio.git](https://github.com/tu-usuario/nombre-del-repositorio.git)
+   cd nombre-del-repositorio
